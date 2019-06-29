@@ -1,17 +1,15 @@
-# 過去コンペ調査
-
-## Diabetic Retinopathy Detection
+# Diabetic Retinopathy Detection
 - 似たようなコンペ。4年前のコンペなので少し古い。
 - 問題は全く同じで糖尿病性網膜症を眼底画像から早期発見するというもの。
 - 重症度について使っているスケールも0~4の同じもの。
 
-### 1st Solution
-#### Cohen's Kappa
+## 1st Solution
+### Cohen's Kappa
 - コンペの評価関数はCohen's Kappa。重み付きカッパ係数。
 - 回帰で予測。最終的には浮動小数点数から整数にする必要がある。
 - 重症度の高いサンプルに対するペナルティが大きいため、単純にroundするよりも適切なしきい値を設定するべき。
 
-#### Image preprocessing
+### Image preprocessing
 - OpenCVを使って前処理。
   1. 同じ半径 (300px or 500px) になるように画像をリスケール。画像の中央にあたるベクトルを抜き出して、平均値以上の値を持つピクセルの数をカウントすることで半径を求める。
   2. 局所領域の平均値が127.5になるように、画像から局所領域の平均値を減じた。
@@ -19,7 +17,7 @@
 - 画像間の照明条件やカメラの解像度による差をなくす意図でやった。
 - pdfにpythonコードあり。
 
-#### Data augmentation
+### Data augmentation
 - OpenCVのwarpAffine関数を用いる。
   1. リスケール (±10%)
   2. 回転 (0°~360°)
@@ -27,12 +25,12 @@
 - TTAは回転のみ。
 - 色を変化させるようなData augmentationは効果が無かった。
 
-#### Network configurations
+### Network configurations
 - fractional max-pooling (?) を用いた3つのモデルを採用。
 - 5-class softmaxで0~4のクラスを推定。
 - ネットワークの出力のprobabilityをランダムフォレストの入力として用いる。
 
-#### Predictions: From softmax to integer scores
+### Predictions: From softmax to integer scores
 - 複数ネットワーク + TTAから得られたprobabilityを平均。
 - より大きな特徴ベクトルを作るために以下のメタデータを追加。
   - 左右の眼のprobability。
@@ -42,17 +40,17 @@
 - ランダムフォレストで回帰？。しきい値処理。{0.57, 1.37, 2.30, 3.12}
 - ランダムフォレストはオーバーキルで、メタデータ追加なしで線形回帰をかけるだけでもうまくいくと思う。
 
-### 2nd Solution
-#### Preprocessing
+## 2nd Solution
+### Preprocessing
 - 眼が収まる最小の正方形領域を選択。
 - (512, 256, 128ピクセル)にリサイズ。
 - 正規化 (平均0, 分散1)
 
-#### Augmentation
+### Augmentation
 - 360度の回転、並進、スケーリング、ストレッチング。
 - Krizhevsky color augmentation (gaussian)
 
-#### Network Configurations
+### Network Configurations
 ```
 net A       |          net B
 units   filter stride size  |  filter stride size
@@ -86,7 +84,7 @@ units   filter stride size  |  filter stride size
 - weight_decay 5e-4
 - MSE loss
 
-#### Training
+### Training
 - 128 px images -> layers 1 - 11 and 20 to 25.
 - 256 px images -> layers 1 - 15 and 20 to 25. Weights of layer 1 - 11 initialized
 with weights from above.
@@ -100,7 +98,7 @@ weights from above.
   - epoch 150: 0.0003
   - epoch 220: 0.00003
 
-#### "Per Patient" Blend
+### "Per Patient" Blend
 - ベストモデルのRMSPoolレイヤの出力の平均と標準偏差を抽出 (TTAあり)。
 - それぞれの眼について以下の特徴量を追加。
 ```
@@ -127,12 +125,12 @@ Maxout         16
   - 0.5: ランダムにサンプリング。
 - 回帰によって得られる連続値に対してしきい値処理。[0.5, 1.5, 2.5, 3.5]
 
-#### Notes
+### Notes
 - カッパ係数が最大になるようにしきい値を最適化するとprivate LBはわずかに改善した。
 - しかし、Public LBは改善しなかったため結局final submissionには採用しなかった。
 
-### 3rd Solution
-#### Model Details
+## 3rd Solution
+### Model Details
 - 384x384~1024x1024の様々な入力サイズのモデルを学習。
 - ほとんどのモデルはMSE lossで学習。
 - 4つのシグモイド関数を用いた学習も行い、性能はMSEとほぼ同じ。
@@ -148,17 +146,17 @@ Maxout         16
 - 0.001 for 30 epochs
 - 0.0001 for 20 epochs.
 
-#### Post-Processing
+### Post-Processing
 - 1-stage modelの両目に対する予測から線形モデルによって最終的な予測値を推定。
 - 学習には1-stage modelの学習時にバリデーションデータとして用いた10%のデータを使う。
 - 2-stage modelにニューラルネットワークを試してみたがうまくいかなかった。
 - バリデーションデータに対するカッパ係数が最大になるようなしきい値をグリッドサーチで探索。
 
-#### Ensemble Details
+### Ensemble Details
 - 9つのモデルの予測値に対する上記の後処理後のint値を入力特徴量として、L1/L2正則化をかけた線形回帰モデルを学習。
 - 連続値はPost-Processingと同様の方法でintに変換。
 
-#### Discussion
+### Discussion
 - 両目の予測を統合する処理は1st and 2nd solutionほど効果的ではなかったと思う。
 - 10%のhold outsetで線形モデルを学習させたがおそらくオーバーフィッティングしてる。
 - やるなら学習データ全体で学習させるべきだった。
