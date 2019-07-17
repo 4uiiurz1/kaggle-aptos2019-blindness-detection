@@ -50,7 +50,7 @@ def parse_args():
                             ' (default: ResNet34)')
     parser.add_argument('--loss', default='CrossEntropyLoss',
                         choices=['CrossEntropyLoss', 'FocalLoss'])
-    parser.add_argument('--epochs', default=300, type=int, metavar='N',
+    parser.add_argument('--epochs', default=10, type=int, metavar='N',
                         help='number of total epochs to run')
     parser.add_argument('-b', '--batch_size', default=32, type=int,
                         metavar='N', help='mini-batch size (default: 32)')
@@ -230,52 +230,62 @@ def main():
         transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
     ])
 
-    train_set = Dataset(
-        train_img_paths,
-        train_labels,
-        transform=train_transform)
-    train_loader = torch.utils.data.DataLoader(
-        train_set,
-        batch_size=args.batch_size,
-        shuffle=True,
-        num_workers=4)
+    best_losses = []
+    best_scores = []
 
-    val_set = Dataset(
-        val_img_paths,
-        val_labels,
-        transform=val_transform)
-    val_loader = torch.utils.data.DataLoader(
-        val_set,
-        batch_size=args.batch_size,
-        shuffle=False,
-        num_workers=4)
+    skf = StratifiedKFold(n_splits=args.n_splits, shuffle=True, random_state=41)
+    for fold, (train_idx, val_idx) in enumerate(skf.split(img_paths, labels)):
+        print('Fold [%d/%d]' %(fold+1, args.n_splits))
 
-    # create model
-    model = archs.__dict__[args.arch]()
-    model = model.cuda()
+        train_img_paths, val_img_paths = img_paths[train_idx], img_paths[val_idx]
+        train_labels, val_labels = labels[train_idx], labels[val_idx]
 
-    # print(model)
+        train_set = Dataset(
+            train_img_paths,
+            train_labels,
+            transform=train_transform)
+        train_loader = torch.utils.data.DataLoader(
+            train_set,
+            batch_size=args.batch_size,
+            shuffle=True,
+            num_workers=4)
 
-    if args.optimizer == 'Adam':
-        optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr)
-    elif args.optimizer == 'SGD':
-        optimizer = optim.SGD(filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr,
-            momentum=args.momentum, weight_decay=args.weight_decay, nesterov=args.nesterov)
+        val_set = Dataset(
+            val_img_paths,
+            val_labels,
+            transform=val_transform)
+        val_loader = torch.utils.data.DataLoader(
+            val_set,
+            batch_size=args.batch_size,
+            shuffle=False,
+            num_workers=4)
 
-    if args.scheduler == 'CosineAnnealingLR':
-        scheduler = lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs, eta_min=args.min_lr)
-    elif args.scheduler == 'ReduceLROnPlateau':
-        scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, factor=args.factor, patience=args.patience,
-            verbose=1, min_lr=args.min_lr)
+        # create model
+        model = archs.__dict__[args.arch]()
+        model = model.cuda()
 
-    for fold in range(args.n_splits):
+        # print(model)
+
+        if args.optimizer == 'Adam':
+            optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr)
+        elif args.optimizer == 'SGD':
+            optimizer = optim.SGD(filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr,
+                momentum=args.momentum, weight_decay=args.weight_decay, nesterov=args.nesterov)
+
+        if args.scheduler == 'CosineAnnealingLR':
+            scheduler = lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs, eta_min=args.min_lr)
+        elif args.scheduler == 'ReduceLROnPlateau':
+            scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, factor=args.factor, patience=args.patience,
+                verbose=1, min_lr=args.min_lr)
+
         log = pd.DataFrame(index=[], columns=[
             'epoch', 'loss', 'score', 'val_loss', 'val_score'
         ])
 
         best_loss = float('inf')
+        best_score = 0
         for epoch in range(args.epochs):
-            print('Epoch [%d/%d]' %(epoch, args.epochs))
+            print('Epoch [%d/%d]' %(epoch+1, args.epochs))
 
             # train for one epoch
             train_loss, train_score = train(args, train_loader, model, criterion, optimizer, epoch)
@@ -299,12 +309,27 @@ def main():
             ], index=['epoch', 'loss', 'score', 'val_loss', 'val_score'])
 
             log = log.append(tmp, ignore_index=True)
-            log.to_csv('models/%s/log.csv' %args.name, index=False)
+            log.to_csv('models/%s/log_%d.csv' %(args.name, fold+1), index=False)
 
             if val_loss < best_loss:
-                torch.save(model.state_dict(), 'models/%s/model.pth' %args.name)
+                torch.save(model.state_dict(), 'models/%s/model_%d.pth' %(args.name, fold+1))
                 best_loss = val_loss
+                best_score = val_score
                 print("=> saved best model")
+
+        print('val_loss:  %f' %best_loss)
+        print('val_score: %f' %best_score)
+
+        best_losses.append(best_loss)
+        best_scores.append(best_score)
+
+    results = pd.DataFrame({
+        'fold': np.arange(1, args.n_splits+1),
+        'best_loss': best_losses,
+        'best_score': best_scores,
+    })
+    print(results)
+    results.to_csv('models/%s/results.csv' %args.name, index=False)
 
 
 if __name__ == '__main__':

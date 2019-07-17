@@ -62,3 +62,28 @@
 
 - 512
   - 0.4429438032037077,0.8809532394548247
+
+## Best parameters (2019/07/16)
+- ResNet34
+- cross entropy
+- SGD
+- momentum: 0.9
+- weight_decay: 0.0001
+- 10epochs
+- Batch size: 32
+- CosineAnnealingLR (5e-3 -> 1e-4)
+- rotate (-180, 180)
+- shear (-36, 36)
+- flip (0.5)
+- Input size: 224x224
+- scale + norm
+- classification
+
+### Local CV
+| fold | best_loss | best_score |
+|:-----|:---------:|:----------:|
+|1     | 0.4424    | 0.8971     |
+|2     | 0.4401    | 0.9058     |
+|3     | 0.4566    | 0.8894     |
+|4     | 0.4781    | 0.8829     |
+|5     | 0.4738    | 0.9055     |
