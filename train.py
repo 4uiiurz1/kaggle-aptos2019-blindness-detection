@@ -49,7 +49,7 @@ def parse_args():
                             ' | '.join(arch_names) +
                             ' (default: ResNet34)')
     parser.add_argument('--loss', default='CrossEntropyLoss',
-                        choices=['CrossEntropyLoss', 'FocalLoss'])
+                        choices=['CrossEntropyLoss', 'FocalLoss', 'MSELoss'])
     parser.add_argument('--epochs', default=10, type=int, metavar='N',
                         help='number of total epochs to run')
     parser.add_argument('-b', '--batch_size', default=32, type=int,
@@ -61,6 +61,8 @@ def parse_args():
                         help='loss: ' +
                             ' | '.join(['Adam', 'SGD']) +
                             ' (default: Adam)')
+    parser.add_argument('--pred_type', default='classification',
+                        choices=['classification', 'regression'])
     parser.add_argument('--scheduler', default='CosineAnnealingLR',
                         choices=['CosineAnnealingLR', 'ReduceLROnPlateau'])
     parser.add_argument('--lr', '--learning-rate', default=5e-3, type=float,
@@ -75,8 +77,6 @@ def parse_args():
                         help='weight decay')
     parser.add_argument('--nesterov', default=False, type=str2bool,
                         help='nesterov')
-    parser.add_argument('--freeze_bn', dest='freeze_bn', action='store_true',
-                        help='freeze BatchNorm layers of encoder')
     parser.add_argument('--cv', default=True, type=str2bool)
     parser.add_argument('--n_splits', default=5, type=int)
 
@@ -114,17 +114,27 @@ def train(args, train_loader, model, criterion, optimizer, epoch):
         target = target.cuda()
 
         output = model(input)
-        loss = criterion(output, target)
-
-        score = quadratic_weighted_kappa(output, target)
-
-        losses.update(loss.item(), input.size(0))
-        scores.update(score, input.size(0))
+        if args.pred_type == 'classification':
+            loss = criterion(output, target)
+        elif args.pred_type == 'regression':
+            loss = criterion(output.view(-1), target.float())
 
         # compute gradient and do optimizing step
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
+
+        if args.pred_type == 'regression':
+            thrs = [0.5, 1.5, 2.5, 3.5]
+            output[output < thrs[0]] = 0
+            output[(output >= thrs[0]) & (output < thrs[1])] = 1
+            output[(output >= thrs[1]) & (output < thrs[2])] = 2
+            output[(output >= thrs[2]) & (output < thrs[3])] = 3
+            output[output >= thrs[3]] = 4
+        score = quadratic_weighted_kappa(output, target)
+
+        losses.update(loss.item(), input.size(0))
+        scores.update(score, input.size(0))
 
     return losses.avg, scores.avg
 
@@ -140,10 +150,22 @@ def validate(args, val_loader, model, criterion):
         for i, (input, target) in tqdm(enumerate(val_loader), total=len(val_loader)):
             input = input.cuda()
             target = target.cuda()
+            if args.pred_type == 'regression':
+                target = target.float()
 
             output = model(input)
-            loss = criterion(output, target)
+            if args.pred_type == 'classification':
+                loss = criterion(output, target)
+            elif args.pred_type == 'regression':
+                loss = criterion(output.view(-1), target.float())
 
+            if args.pred_type == 'regression':
+                thrs = [0.5, 1.5, 2.5, 3.5]
+                output[output < thrs[0]] = 0
+                output[(output >= thrs[0]) & (output < thrs[1])] = 1
+                output[(output >= thrs[1]) & (output < thrs[2])] = 2
+                output[(output >= thrs[2]) & (output < thrs[3])] = 3
+                output[output >= thrs[3]] = 4
             score = quadratic_weighted_kappa(output, target)
 
             losses.update(loss.item(), input.size(0))
@@ -176,6 +198,17 @@ def main():
         criterion = nn.CrossEntropyLoss().cuda()
     elif args.loss == 'FocalLoss':
         criterion = FocalLoss().cuda()
+    elif args.loss == 'MSELoss':
+        criterion = nn.MSELoss().cuda()
+    else:
+        raise NotImplementedError
+
+    if args.pred_type == 'classification':
+        num_classes = 5
+    elif args.pred_type == 'regression':
+        num_classes = 1
+    else:
+        raise NotImplementedError
 
     cudnn.benchmark = True
 
@@ -261,7 +294,7 @@ def main():
             num_workers=4)
 
         # create model
-        model = archs.__dict__[args.arch]()
+        model = archs.__dict__[args.arch](num_classes=num_classes)
         model = model.cuda()
 
         # print(model)

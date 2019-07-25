@@ -8,5 +8,8 @@ def quadratic_weighted_kappa(y_pred, y_true):
         y_pred = y_pred.data.cpu().numpy()
     if torch.is_tensor(y_true):
         y_true = y_true.data.cpu().numpy()
-    y_pred = np.argmax(y_pred, axis=1)
+    if y_pred.shape[1] == 1:
+        y_pred = y_pred[:, 0]
+    else:
+        y_pred = np.argmax(y_pred, axis=1)
     return metrics.cohen_kappa_score(y_pred, y_true, weights='quadratic')
