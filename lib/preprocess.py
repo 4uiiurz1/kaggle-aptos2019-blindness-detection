@@ -43,11 +43,17 @@ def remove_boundaries(src, img_size):
     return dst
 
 
-def preprocess(img_size, scale=False, norm=False, pad=False, remove=False):
-    df = pd.read_csv('inputs/train.csv')
-    img_paths = 'inputs/train_images/' + df['id_code'].values + '.png'
+def preprocess(dataset, img_size, scale=False, norm=False, pad=False, remove=False):
+    if dataset == 'aptos2019_blindness_detection':
+        df = pd.read_csv('inputs/train.csv')
+        img_paths = 'inputs/train_images/' + df['id_code'].values + '.png'
+    elif dataset == 'diabetic_retinopathy_detection':
+        df = pd.read_csv('inputs/diabetic-retinopathy-resized/trainLabels.csv')
+        img_paths = 'inputs/diabetic-retinopathy-resized/resized_train/' + df['image'].values + '.jpeg'
+    else:
+        NotImplementedError
 
-    dir_name = 'processed/train_images_%d' %img_size
+    dir_name = 'processed/%s/images_%d' %(dataset, img_size)
     if scale:
         dir_name += '_scaled'
     if norm:
@@ -56,12 +62,18 @@ def preprocess(img_size, scale=False, norm=False, pad=False, remove=False):
         dir_name += '_pad'
     if remove:
         dir_name += '_rm'
+
     os.makedirs(dir_name, exist_ok=True)
     for i in tqdm(range(len(img_paths))):
         img_path = img_paths[i]
+        if os.path.exists(os.path.join(dir_name, os.path.basename(img_path))):
+            continue
         img = cv2.imread(img_path)
-        if scale:
-            img = scale_radius(img, img_size=img_size, padding=pad)
+        try:
+            if scale:
+                img = scale_radius(img, img_size=img_size, padding=pad)
+        except Exception as e:
+            print(img_paths[i])
         img = cv2.resize(img, (img_size, img_size))
         if norm:
             img = normalize(img, img_size=img_size)
@@ -69,29 +81,4 @@ def preprocess(img_size, scale=False, norm=False, pad=False, remove=False):
             img = remove_boundaries(img, img_size=img_size)
         cv2.imwrite(os.path.join(dir_name, os.path.basename(img_path)), img)
 
-
-if __name__ == '__main__':
-    import os
-    from tqdm import tqdm
-    import pandas as pd
-
-    df = pd.read_csv('inputs/train.csv')
-    img_paths = 'inputs/train_images/' + df['id_code'].values + '.png'
-
-    os.makedirs('processed/train_images_224', exist_ok=True)
-    for i in tqdm(range(len(img_paths))):
-        img_path = img_paths[i]
-        img = cv2.imread(img_path)
-        img = cv2.resize(img, (224, 224))
-        cv2.imwrite('processed/train_images_224/' + os.path.basename(img_path), img)
-
-
-# if __name__ == '__main__':
-#     import matplotlib.pyplot as plt
-#
-#     img = cv2.imread('inputs/train_images/000c1434d8d7.png')
-#     img = scale_radius(img, img_size=224, padding=True)
-#     img = normalize(img, img_size=224)
-#
-#     plt.imshow(img)
-#     plt.show()
+    return dir_name

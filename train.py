@@ -28,14 +28,12 @@ import torch.backends.cudnn as cudnn
 import torchvision
 from torchvision import datasets, models, transforms
 
-from dataset import Dataset
-import archs
-from utils import *
-from metrics import *
-from losses import *
-from preprocess import preprocess
-
-arch_names = archs.__dict__.keys()
+from lib.dataset import Dataset
+from lib.models.model_factory import get_model
+from lib.utils import *
+from lib.metrics import *
+from lib.losses import *
+from lib.preprocess import preprocess
 
 
 def parse_args():
@@ -43,11 +41,11 @@ def parse_args():
 
     parser.add_argument('--name', default=None,
                         help='model name: (default: arch+timestamp)')
-    parser.add_argument('--arch', '-a', metavar='ARCH', default='ResNet34',
-                        choices=arch_names,
+    parser.add_argument('--arch', '-a', metavar='ARCH', default='resnet34',
                         help='model architecture: ' +
-                            ' | '.join(arch_names) +
-                            ' (default: ResNet34)')
+                        ' (default: resnet34)')
+    parser.add_argument('--freeze_bn', default=True, type=str2bool)
+    parser.add_argument('--dropout_p', default=0, type=float)
     parser.add_argument('--loss', default='CrossEntropyLoss',
                         choices=['CrossEntropyLoss', 'FocalLoss', 'MSELoss'])
     parser.add_argument('--epochs', default=10, type=int, metavar='N',
@@ -59,8 +57,8 @@ def parse_args():
     parser.add_argument('--optimizer', default='SGD',
                         choices=['Adam', 'SGD'],
                         help='loss: ' +
-                            ' | '.join(['Adam', 'SGD']) +
-                            ' (default: Adam)')
+                        ' | '.join(['Adam', 'SGD']) +
+                        ' (default: Adam)')
     parser.add_argument('--pred_type', default='classification',
                         choices=['classification', 'regression'])
     parser.add_argument('--scheduler', default='CosineAnnealingLR',
@@ -77,14 +75,12 @@ def parse_args():
                         help='weight decay')
     parser.add_argument('--nesterov', default=False, type=str2bool,
                         help='nesterov')
-    parser.add_argument('--cv', default=True, type=str2bool)
-    parser.add_argument('--n_splits', default=5, type=int)
 
     # preprocessing
     parser.add_argument('--scale_radius', default=True, type=str2bool)
     parser.add_argument('--normalize', default=True, type=str2bool)
     parser.add_argument('--padding', default=False, type=str2bool)
-    parser.add_argument('--remove', default=False, type=str2bool)
+    parser.add_argument('--remove', default=True, type=str2bool)
 
     # data augmentation
     parser.add_argument('--rotate', default=180, type=int)
@@ -97,6 +93,12 @@ def parse_args():
     parser.add_argument('--random_erase_sl', default=0.02, type=float)
     parser.add_argument('--random_erase_sh', default=0.4, type=float)
     parser.add_argument('--random_erase_r', default=0.3, type=float)
+
+    # dataset
+    parser.add_argument('--train_dataset',
+                        default='diabetic_retinopathy_detection')
+    parser.add_argument(
+        '--val_dataset', default='aptos2019_blindness_detection')
 
     args = parser.parse_args()
 
@@ -178,21 +180,21 @@ def main():
     args = parse_args()
 
     if args.name is None:
-        args.name = '%s_%s' %(args.arch, datetime.now().strftime('%m%d%H'))
+        args.name = '%s_%s' % (args.arch, datetime.now().strftime('%m%d%H'))
 
-    if not os.path.exists('models/%s' %args.name):
-        os.makedirs('models/%s' %args.name)
+    if not os.path.exists('models/%s' % args.name):
+        os.makedirs('models/%s' % args.name)
 
     print('Config -----')
     for arg in vars(args):
-        print('%s: %s' %(arg, getattr(args, arg)))
+        print('%s: %s' % (arg, getattr(args, arg)))
     print('------------')
 
-    with open('models/%s/args.txt' %args.name, 'w') as f:
+    with open('models/%s/args.txt' % args.name, 'w') as f:
         for arg in vars(args):
-            print('%s: %s' %(arg, getattr(args, arg)), file=f)
+            print('%s: %s' % (arg, getattr(args, arg)), file=f)
 
-    joblib.dump(args, 'models/%s/args.pkl' %args.name)
+    joblib.dump(args, 'models/%s/args.pkl' % args.name)
 
     if args.loss == 'CrossEntropyLoss':
         criterion = nn.CrossEntropyLoss().cuda()
@@ -213,30 +215,38 @@ def main():
     cudnn.benchmark = True
 
     # data loading code
-    dir_name = 'processed/train_images_%d' %args.img_size
-    if args.scale_radius:
-        dir_name += '_scaled'
-    if args.normalize:
-        dir_name += '_normed'
-    if args.padding:
-        dir_name += '_pad'
-    if args.remove:
-        dir_name += '_rm'
-    if not os.path.exists(dir_name):
-        preprocess(
-            args.img_size,
-            scale=args.scale_radius,
-            norm=args.normalize,
-            pad=args.padding,
-            remove=args.remove)
+    train_dir = preprocess(
+        args.train_dataset,
+        args.img_size,
+        scale=args.scale_radius,
+        norm=args.normalize,
+        pad=args.padding,
+        remove=args.remove)
+    val_dir = preprocess(
+        args.val_dataset,
+        args.img_size,
+        scale=args.scale_radius,
+        norm=args.normalize,
+        pad=args.padding,
+        remove=args.remove)
 
-    df = pd.read_csv('inputs/train.csv')
-    img_paths = dir_name + '/' + df['id_code'].values + '.png'
+    def get_dataset(dataset, dir):
+        if dataset == 'aptos2019_blindness_detection':
+            df = pd.read_csv('inputs/train.csv')
+            img_paths = dir + '/' + df['id_code'].values + '.png'
+            labels = df['diagnosis'].values
+        elif dataset == 'diabetic_retinopathy_detection':
+            df = pd.read_csv(
+                'inputs/diabetic-retinopathy-resized/trainLabels.csv')
+            img_paths = dir + '/' + df['image'].values + '.jpeg'
+            labels = df['level'].values
+        else:
+            raise NotImplementedError
 
-    labels = df['diagnosis'].values
+        return img_paths, labels
 
-    train_img_paths, val_img_paths, train_labels, val_labels = \
-        train_test_split(img_paths, labels, stratify=labels, test_size=1/args.n_splits, random_state=41)
+    train_img_paths, train_labels = get_dataset(args.train_dataset, train_dir)
+    val_img_paths, val_labels = get_dataset(args.val_dataset, val_dir)
 
     train_transform = transforms.Compose([
         transforms.Resize((args.img_size, args.img_size)),
@@ -263,106 +273,99 @@ def main():
         transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
     ])
 
-    best_losses = []
-    best_scores = []
+    # train
+    train_set = Dataset(
+        train_img_paths,
+        train_labels,
+        transform=train_transform)
+    train_loader = torch.utils.data.DataLoader(
+        train_set,
+        batch_size=args.batch_size,
+        shuffle=True,
+        num_workers=4)
 
-    skf = StratifiedKFold(n_splits=args.n_splits, shuffle=True, random_state=41)
-    for fold, (train_idx, val_idx) in enumerate(skf.split(img_paths, labels)):
-        print('Fold [%d/%d]' %(fold+1, args.n_splits))
+    val_set = Dataset(
+        val_img_paths,
+        val_labels,
+        transform=val_transform)
+    val_loader = torch.utils.data.DataLoader(
+        val_set,
+        batch_size=args.batch_size,
+        shuffle=False,
+        num_workers=4)
 
-        train_img_paths, val_img_paths = img_paths[train_idx], img_paths[val_idx]
-        train_labels, val_labels = labels[train_idx], labels[val_idx]
+    # create model
+    model = get_model(model_name=args.arch,
+                      num_outputs=num_classes,
+                      freeze_bn=args.freeze_bn,
+                      dropout_p=args.dropout_p)
+    model = model.cuda()
 
-        train_set = Dataset(
-            train_img_paths,
-            train_labels,
-            transform=train_transform)
-        train_loader = torch.utils.data.DataLoader(
-            train_set,
-            batch_size=args.batch_size,
-            shuffle=True,
-            num_workers=4)
+    # print(model)
 
-        val_set = Dataset(
-            val_img_paths,
-            val_labels,
-            transform=val_transform)
-        val_loader = torch.utils.data.DataLoader(
-            val_set,
-            batch_size=args.batch_size,
-            shuffle=False,
-            num_workers=4)
+    if args.optimizer == 'Adam':
+        optimizer = optim.Adam(
+            filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr)
+    elif args.optimizer == 'SGD':
+        optimizer = optim.SGD(filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr,
+                              momentum=args.momentum, weight_decay=args.weight_decay, nesterov=args.nesterov)
 
-        # create model
-        model = archs.__dict__[args.arch](num_classes=num_classes)
-        model = model.cuda()
+    if args.scheduler == 'CosineAnnealingLR':
+        scheduler = lr_scheduler.CosineAnnealingLR(
+            optimizer, T_max=args.epochs, eta_min=args.min_lr)
+    elif args.scheduler == 'ReduceLROnPlateau':
+        scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, factor=args.factor, patience=args.patience,
+                                                   verbose=1, min_lr=args.min_lr)
 
-        # print(model)
+    log = pd.DataFrame(index=[], columns=[
+        'epoch', 'loss', 'score', 'val_loss', 'val_score'
+    ])
 
-        if args.optimizer == 'Adam':
-            optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr)
-        elif args.optimizer == 'SGD':
-            optimizer = optim.SGD(filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr,
-                momentum=args.momentum, weight_decay=args.weight_decay, nesterov=args.nesterov)
+    best_loss = float('inf')
+    best_score = 0
+    for epoch in range(args.epochs):
+        print('Epoch [%d/%d]' % (epoch + 1, args.epochs))
+
+        # train for one epoch
+        train_loss, train_score = train(
+            args, train_loader, model, criterion, optimizer, epoch)
+        # evaluate on validation set
+        val_loss, val_score = validate(args, val_loader, model, criterion)
 
         if args.scheduler == 'CosineAnnealingLR':
-            scheduler = lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs, eta_min=args.min_lr)
+            scheduler.step()
         elif args.scheduler == 'ReduceLROnPlateau':
-            scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, factor=args.factor, patience=args.patience,
-                verbose=1, min_lr=args.min_lr)
+            scheduler.step(val_loss)
 
-        log = pd.DataFrame(index=[], columns=[
-            'epoch', 'loss', 'score', 'val_loss', 'val_score'
-        ])
+        print('loss %.4f - score %.4f - val_loss %.4f - val_score %.4f'
+              % (train_loss, train_score, val_loss, val_score))
 
-        best_loss = float('inf')
-        best_score = 0
-        for epoch in range(args.epochs):
-            print('Epoch [%d/%d]' %(epoch+1, args.epochs))
+        tmp = pd.Series([
+            epoch,
+            train_loss,
+            train_score,
+            val_loss,
+            val_score
+        ], index=['epoch', 'loss', 'score', 'val_loss', 'val_score'])
 
-            # train for one epoch
-            train_loss, train_score = train(args, train_loader, model, criterion, optimizer, epoch)
-            # evaluate on validation set
-            val_loss, val_score = validate(args, val_loader, model, criterion)
+        log = log.append(tmp, ignore_index=True)
+        log.to_csv('models/%s/log.csv' % args.name, index=False)
 
-            if args.scheduler == 'CosineAnnealingLR':
-                scheduler.step()
-            elif args.scheduler == 'ReduceLROnPlateau':
-                scheduler.step(val_loss)
+        if val_loss < best_loss:
+            torch.save(model.state_dict(), 'models/%s/model.pth' % args.name)
+            best_loss = val_loss
+            best_score = val_score
+            print("=> saved best model")
 
-            print('loss %.4f - score %.4f - val_loss %.4f - val_score %.4f'
-                %(train_loss, train_score, val_loss, val_score))
-
-            tmp = pd.Series([
-                epoch,
-                train_loss,
-                train_score,
-                val_loss,
-                val_score
-            ], index=['epoch', 'loss', 'score', 'val_loss', 'val_score'])
-
-            log = log.append(tmp, ignore_index=True)
-            log.to_csv('models/%s/log_%d.csv' %(args.name, fold+1), index=False)
-
-            if val_loss < best_loss:
-                torch.save(model.state_dict(), 'models/%s/model_%d.pth' %(args.name, fold+1))
-                best_loss = val_loss
-                best_score = val_score
-                print("=> saved best model")
-
-        print('val_loss:  %f' %best_loss)
-        print('val_score: %f' %best_score)
-
-        best_losses.append(best_loss)
-        best_scores.append(best_score)
+    print('val_loss:  %f' % best_loss)
+    print('val_score: %f' % best_score)
 
     results = pd.DataFrame({
-        'fold': np.arange(1, args.n_splits+1),
-        'best_loss': best_losses,
-        'best_score': best_scores,
+        'best_loss': [best_loss],
+        'best_score': [best_score],
     })
     print(results)
-    results.to_csv('models/%s/results.csv' %args.name, index=False)
+    results.to_csv('models/%s/results.csv' % args.name, index=False)
 
 
 if __name__ == '__main__':

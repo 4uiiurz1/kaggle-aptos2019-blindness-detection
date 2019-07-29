@@ -8,6 +8,7 @@ import scipy.ndimage as ndi
 from tqdm import tqdm
 import os
 from PIL import Image
+from skimage.io import imread
 
 
 class Dataset(torch.utils.data.Dataset):
@@ -21,6 +22,7 @@ class Dataset(torch.utils.data.Dataset):
 
         img = cv2.imread(img_path)
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        # img = imread(img_path)
         img = Image.fromarray(img)
 
         if self.transform is not None:
