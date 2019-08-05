@@ -4,4 +4,5 @@ __pycache__/
 inputs/*
 processed/*
 models/*
+submissions/*
 *.bat

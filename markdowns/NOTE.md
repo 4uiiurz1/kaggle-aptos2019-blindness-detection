@@ -94,6 +94,28 @@
 | ResNet34_072223 | 0.8994 | 0.657    |
 | ResNet34_072517 | 0.8797 | 0.685    |
 
+## Preprocessing
+- ResNet34
+- regression
+- SGD
+- 30epochs
+- CosineAnnealingLR(1e-3, 1e-5)
+- rotate (-180, 180)
+- shear (-36, 36)
+- flip (0.5)
+
+| Model           | scale | remove | norm | val loss | val score | PublicLB |
+|:---------------:|:-----:|:------:|:----:|:--------:|:---------:|:--------:|
+| resnet34_080306 |       |        |      | 0.2777   | 0.8998    | 0.768    |
+| resnet34_080214 | o     |        |      | **0.2718**   | **0.9049**    | **0.784**    |
+| resnet34_080206 | o     | o      |      | 0.2917   | 0.8920    |          |
+| resnet34_073012 | o     | o      | o    | 0.3016   | 0.8883    | 0.770    |
+
+- 効果があるのはscale_radiusのみ。他はやらないほうが良い。
+
 ## メモ
-- remove=True
-- freeze_bn=True
+- ```
+package_dir = "../input/pretrained-models/pretrained-models/pretrained-models.pytorch-master/"
+sys.path.insert(0, package_dir)
+```
+- epochs=30が最適

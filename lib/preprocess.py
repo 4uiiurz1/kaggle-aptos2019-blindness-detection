@@ -44,12 +44,15 @@ def remove_boundaries(src, img_size):
 
 
 def preprocess(dataset, img_size, scale=False, norm=False, pad=False, remove=False):
-    if dataset == 'aptos2019_blindness_detection':
+    if dataset == 'aptos2019':
         df = pd.read_csv('inputs/train.csv')
         img_paths = 'inputs/train_images/' + df['id_code'].values + '.png'
-    elif dataset == 'diabetic_retinopathy_detection':
+    elif dataset == 'diabetic_retinopathy':
         df = pd.read_csv('inputs/diabetic-retinopathy-resized/trainLabels.csv')
         img_paths = 'inputs/diabetic-retinopathy-resized/resized_train/' + df['image'].values + '.jpeg'
+    elif dataset == 'test':
+        df = pd.read_csv('inputs/test.csv')
+        img_paths = 'inputs/test_images/' + df['id_code'].values + '.png'
     else:
         NotImplementedError
 
