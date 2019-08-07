@@ -113,6 +113,21 @@
 
 - 効果があるのはscale_radiusのみ。他はやらないほうが良い。
 
+## Contrast
+- ResNet34
+- regression
+- SGD
+- 30epochs
+- CosineAnnealingLR(1e-3, 1e-5)
+- rotate (-180, 180)
+- shear (-36, 36)
+- flip (0.5)
+
+| Model           | contrast | val loss | val score | PublicLB |
+|:---------------:|:--------:|:--------:|:---------:|:--------:|
+| resnet34_080214 |          | 0.2718   | 0.9049    | 0.784    |
+| resnet34_080320 |(0.9, 1.1)| **0.2639**   | **0.9062**    | **0.788**    |
+
 ## メモ
 - ```
 package_dir = "../input/pretrained-models/pretrained-models/pretrained-models.pytorch-master/"

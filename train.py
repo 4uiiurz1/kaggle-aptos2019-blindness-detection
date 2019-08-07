@@ -46,7 +46,6 @@ def parse_args():
                         ' (default: resnet34)')
     parser.add_argument('--freeze_bn', default=True, type=str2bool)
     parser.add_argument('--dropout_p', default=0, type=float)
-    parser.add_argument('--pretrained_weights')
     parser.add_argument('--loss', default='CrossEntropyLoss',
                         choices=['CrossEntropyLoss', 'FocalLoss', 'MSELoss'])
     parser.add_argument('--epochs', default=30, type=int, metavar='N',
@@ -112,6 +111,10 @@ def parse_args():
     parser.add_argument('--cv', default=True, type=str2bool)
     parser.add_argument('--n_splits', default=5, type=int)
 
+    # pseudo label
+    parser.add_argument('--pretrained_model')
+    parser.add_argument('--pseudo_labels')
+
     args = parser.parse_args()
 
     return args
@@ -145,6 +148,13 @@ def train(args, train_loader, model, criterion, optimizer, epoch):
             output[(output >= thrs[1]) & (output < thrs[2])] = 2
             output[(output >= thrs[2]) & (output < thrs[3])] = 3
             output[output >= thrs[3]] = 4
+        if args.pseudo_labels is not None:
+            thrs = [0.5, 1.5, 2.5, 3.5]
+            target[target < thrs[0]] = 0
+            target[(target >= thrs[0]) & (target < thrs[1])] = 1
+            target[(target >= thrs[1]) & (target < thrs[2])] = 2
+            target[(target >= thrs[2]) & (target < thrs[3])] = 3
+            target[target >= thrs[3]] = 4
         score = quadratic_weighted_kappa(output, target)
 
         losses.update(loss.item(), input.size(0))
@@ -301,6 +311,21 @@ def main():
     else:
         raise NotImplementedError
 
+    if args.pseudo_labels:
+        test_df = pd.read_csv('probs/%s.csv' % args.pseudo_labels)
+        test_dir = preprocess(
+            'test',
+            args.img_size,
+            scale=args.scale_radius,
+            norm=args.normalize,
+            pad=args.padding,
+            remove=args.remove)
+        test_img_paths = test_dir + '/' + test_df['id_code'].values + '.png'
+        test_labels = test_df['diagnosis'].values
+        for fold in range(len(img_paths)):
+            img_paths[fold] = (np.hstack((img_paths[fold][0], test_img_paths)), img_paths[fold][1])
+            labels[fold] = (np.hstack((labels[fold][0], test_labels)), labels[fold][1])
+
     folds = []
     best_losses = []
     best_scores = []
@@ -343,8 +368,8 @@ def main():
                           freeze_bn=args.freeze_bn,
                           dropout_p=args.dropout_p)
         model = model.cuda()
-        if args.pretrained_weights is not None:
-            model.load_state_dict(torch.load(args.pretrained_weights))
+        if args.pretrained_model is not None:
+            model.load_state_dict(torch.load('models/%s/model_%d.pth' % (args.pretrained_model, fold+1)))
 
         # print(model)
 

@@ -41,10 +41,24 @@ def parse_args():
 
     parser.add_argument('--name', default=None,
                         help='model name: (default: arch+timestamp)')
+    parser.add_argument('--tta', default=False, type=str2bool)
 
     args = parser.parse_args()
 
     return args
+
+
+def apply_tta(input):
+    inputs = []
+    inputs.append(input)
+    inputs.append(torch.flip(input, dims=[2]))
+    inputs.append(torch.flip(input, dims=[3]))
+    inputs.append(torch.rot90(input, k=1, dims=[2, 3]))
+    inputs.append(torch.rot90(input, k=2, dims=[2, 3]))
+    inputs.append(torch.rot90(input, k=3, dims=[2, 3]))
+    inputs.append(torch.rot90(torch.flip(input, dims=[2]), k=1, dims=[2, 3]))
+    inputs.append(torch.rot90(torch.flip(input, dims=[2]), k=3, dims=[2, 3]))
+    return inputs
 
 
 def main():
@@ -115,10 +129,18 @@ def main():
         preds_fold = []
         with torch.no_grad():
             for i, (input, _) in tqdm(enumerate(test_loader), total=len(test_loader)):
-                input = input.cuda()
-                output = model(input)
+                if test_args.tta:
+                    outputs = []
+                    for input in apply_tta(input):
+                        input = input.cuda()
+                        output = model(input)
+                        outputs.append(output.data.cpu().numpy()[:, 0])
+                    preds_fold.extend(np.mean(outputs, axis=0))
+                else:
+                    input = input.cuda()
+                    output = model(input)
 
-                preds_fold.extend(output.data.cpu().numpy()[:, 0])
+                    preds_fold.extend(output.data.cpu().numpy()[:, 0])
         preds_fold = np.array(preds_fold)
         preds.append(preds_fold)
 
@@ -126,6 +148,12 @@ def main():
             break
 
     preds = np.mean(preds, axis=0)
+
+    if test_args.tta:
+        args.name += '_tta'
+
+    test_df['diagnosis'] = preds
+    test_df.to_csv('probs/%s.csv' %args.name, index=False)
 
     thrs = [0.5, 1.5, 2.5, 3.5]
     preds[preds < thrs[0]] = 0
