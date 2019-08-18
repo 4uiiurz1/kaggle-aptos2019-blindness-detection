@@ -46,21 +46,19 @@ def parse_args():
                         ' (default: resnet34)')
     parser.add_argument('--freeze_bn', default=True, type=str2bool)
     parser.add_argument('--dropout_p', default=0, type=float)
-    parser.add_argument('--loss', default='CrossEntropyLoss',
-                        choices=['CrossEntropyLoss', 'FocalLoss', 'MSELoss'])
+    parser.add_argument('--loss', default='MSELoss',
+                        choices=['CrossEntropyLoss', 'FocalLoss', 'MSELoss', 'multitask'])
     parser.add_argument('--epochs', default=30, type=int, metavar='N',
                         help='number of total epochs to run')
     parser.add_argument('-b', '--batch_size', default=32, type=int,
                         metavar='N', help='mini-batch size (default: 32)')
-    parser.add_argument('--img_size', default=256, type=int,
+    parser.add_argument('--img_size', default=288, type=int,
+                        help='input image size (default: 288)')
+    parser.add_argument('--input_size', default=256, type=int,
                         help='input image size (default: 256)')
-    parser.add_argument('--optimizer', default='SGD',
-                        choices=['Adam', 'SGD'],
-                        help='loss: ' +
-                        ' | '.join(['Adam', 'SGD']) +
-                        ' (default: Adam)')
-    parser.add_argument('--pred_type', default='classification',
-                        choices=['classification', 'regression'])
+    parser.add_argument('--optimizer', default='SGD')
+    parser.add_argument('--pred_type', default='regression',
+                        choices=['classification', 'regression', 'multitask'])
     parser.add_argument('--scheduler', default='CosineAnnealingLR',
                         choices=['CosineAnnealingLR', 'ReduceLROnPlateau'])
     parser.add_argument('--lr', '--learning-rate', default=1e-3, type=float,
@@ -86,9 +84,9 @@ def parse_args():
     parser.add_argument('--rotate', default=True, type=str2bool)
     parser.add_argument('--rotate_min', default=-180, type=int)
     parser.add_argument('--rotate_max', default=180, type=int)
-    parser.add_argument('--rescale', default=False, type=str2bool)
-    parser.add_argument('--rescale_min', default=1.0, type=float)
-    parser.add_argument('--rescale_max', default=1.125, type=float)
+    parser.add_argument('--rescale', default=True, type=str2bool)
+    parser.add_argument('--rescale_min', default=0.8889, type=float)
+    parser.add_argument('--rescale_max', default=1.0, type=float)
     parser.add_argument('--shear', default=True, type=str2bool)
     parser.add_argument('--shear_min', default=-36, type=int)
     parser.add_argument('--shear_max', default=36, type=int)
@@ -135,13 +133,17 @@ def train(args, train_loader, model, criterion, optimizer, epoch):
             loss = criterion(output, target)
         elif args.pred_type == 'regression':
             loss = criterion(output.view(-1), target.float())
+        elif args.pred_type == 'multitask':
+            loss = criterion['regression'](output[:, 0], target.float()) + \
+                   criterion['classification'](output[:, 1:], target)
+            output = output[:, 0].unsqueeze(1)
 
         # compute gradient and do optimizing step
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
 
-        if args.pred_type == 'regression':
+        if args.pred_type == 'regression' or args.pred_type == 'multitask':
             thrs = [0.5, 1.5, 2.5, 3.5]
             output[output < thrs[0]] = 0
             output[(output >= thrs[0]) & (output < thrs[1])] = 1
@@ -174,16 +176,18 @@ def validate(args, val_loader, model, criterion):
         for i, (input, target) in tqdm(enumerate(val_loader), total=len(val_loader)):
             input = input.cuda()
             target = target.cuda()
-            if args.pred_type == 'regression':
-                target = target.float()
 
             output = model(input)
             if args.pred_type == 'classification':
                 loss = criterion(output, target)
             elif args.pred_type == 'regression':
                 loss = criterion(output.view(-1), target.float())
+            elif args.pred_type == 'multitask':
+                loss = criterion['regression'](output[:, 0], target.float()) + \
+                       criterion['classification'](output[:, 1:], target)
+                output = output[:, 0].unsqueeze(1)
 
-            if args.pred_type == 'regression':
+            if args.pred_type == 'regression' or args.pred_type == 'multitask':
                 thrs = [0.5, 1.5, 2.5, 3.5]
                 output[output < thrs[0]] = 0
                 output[(output >= thrs[0]) & (output < thrs[1])] = 1
@@ -224,6 +228,11 @@ def main():
         criterion = FocalLoss().cuda()
     elif args.loss == 'MSELoss':
         criterion = nn.MSELoss().cuda()
+    elif args.loss == 'multitask':
+        criterion = {
+            'classification': nn.CrossEntropyLoss().cuda(),
+            'regression': nn.MSELoss().cuda(),
+        }
     else:
         raise NotImplementedError
 
@@ -231,6 +240,8 @@ def main():
         num_outputs = 5
     elif args.pred_type == 'regression':
         num_outputs = 1
+    elif args.loss == 'multitask':
+        num_outputs = 6
     else:
         raise NotImplementedError
 
@@ -238,13 +249,14 @@ def main():
 
     train_transform = []
     train_transform = transforms.Compose([
-        transforms.Resize(args.img_size),
+        transforms.Resize((args.img_size, args.img_size)),
         transforms.RandomAffine(
             degrees=(args.rotate_min, args.rotate_max) if args.rotate else 0,
             translate=(args.translate_min, args.translate_max) if args.translate else None,
             scale=(args.rescale_min, args.rescale_max) if args.rescale else None,
             shear=(args.shear_min, args.shear_max) if args.shear else None,
         ),
+        transforms.CenterCrop(args.input_size),
         transforms.RandomHorizontalFlip(p=0.5 if args.flip else 0),
         transforms.RandomVerticalFlip(p=0.5 if args.flip else 0),
         transforms.ColorJitter(
@@ -262,7 +274,7 @@ def main():
     ])
 
     val_transform = transforms.Compose([
-        transforms.Resize(args.img_size),
+        transforms.Resize((args.img_size, args.input_size)),
         transforms.ToTensor(),
         transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
     ])
@@ -375,6 +387,9 @@ def main():
 
         if args.optimizer == 'Adam':
             optimizer = optim.Adam(
+                filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr)
+        elif args.optimizer == 'AdamW':
+            optimizer = optim.AdamW(
                 filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr)
         elif args.optimizer == 'SGD':
             optimizer = optim.SGD(filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr,

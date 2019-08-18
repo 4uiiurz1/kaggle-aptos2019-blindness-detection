@@ -5,4 +5,5 @@ inputs/*
 processed/*
 models/*
 submissions/*
+probs/*
 *.bat

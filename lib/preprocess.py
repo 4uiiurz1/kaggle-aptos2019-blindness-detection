@@ -46,7 +46,8 @@ def remove_boundaries(src, img_size):
 def preprocess(dataset, img_size, scale=False, norm=False, pad=False, remove=False):
     if dataset == 'aptos2019':
         df = pd.read_csv('inputs/train.csv')
-        img_paths = 'inputs/train_images/' + df['id_code'].values + '.png'
+        # img_paths = 'inputs/train_images/' + df['id_code'].values + '.png'
+        img_paths = 'processed/train_images_resized/' + df['id_code'].values + '.png'
     elif dataset == 'diabetic_retinopathy':
         df = pd.read_csv('inputs/diabetic-retinopathy-resized/trainLabels.csv')
         img_paths = 'inputs/diabetic-retinopathy-resized/resized_train/' + df['image'].values + '.jpeg'

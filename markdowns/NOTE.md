@@ -1,6 +1,6 @@
 # Experiments
 ## Preprocessing
-- ResNet34
+- resnet34
 - cross entropy
 - Adam
 - 5epochs
@@ -18,7 +18,7 @@
 | o     | o    |     | o      | 0.5479   | 0.8508    |
 
 ## Augmentation
-- ResNet34
+- resnet34
 - cross entropy
 - Adam
 - 10epochs
@@ -50,7 +50,7 @@
 | o      |         | o     |           | o    |**0.4966**| 0.8703    |
 
 ## Image size
-- ResNet34
+- resnet34
 - cross entropy
 - SGD
 - 30epochs
@@ -64,7 +64,7 @@
   - 0.4429438032037077,0.8809532394548247
 
 ## Best parameters (2019/07/16)
-- ResNet34
+- resnet34
 - cross entropy
 - SGD
 - momentum: 0.9
@@ -95,7 +95,7 @@
 | ResNet34_072517 | 0.8797 | 0.685    |
 
 ## Preprocessing
-- ResNet34
+- resnet34
 - regression
 - SGD
 - 30epochs
@@ -114,7 +114,7 @@
 - 効果があるのはscale_radiusのみ。他はやらないほうが良い。
 
 ## Contrast
-- ResNet34
+- resnet34
 - regression
 - SGD
 - 30epochs
@@ -128,9 +128,78 @@
 | resnet34_080214 |          | 0.2718   | 0.9049    | 0.784    |
 | resnet34_080320 |(0.9, 1.1)| **0.2639**   | **0.9062**    | **0.788**    |
 
-## メモ
-- ```
-package_dir = "../input/pretrained-models/pretrained-models/pretrained-models.pytorch-master/"
-sys.path.insert(0, package_dir)
+## Rescale
+- resnet34
+- regression
+- SGD
+- epochs: 30
+- CosineAnnealingLR (1e-3, 1e-5)
+- rotate (-180, 180)
+- shear (-36, 36)
+- flip (0.5)
+- contrast (0.9, 1.1)
+
+| Model           | rescale    | val loss | val score | PublicLB |
+|:---------------:|:----------:|:--------:|:---------:|:--------:|
+| resnet34_080320 |            | **0.2639**   | **0.9062**    | 0.788    |
+| resnet34_080320 |(1.0, 1.125)| 0.2771   | 0.9016    | 0.789    |
+| resnet34_080806 | 288 -> rescale (0.8889, 1.0) -> centercrop(256) | 0.2720 | 0.9031 | **0.793** |
+| resnet34_081200 | 320 -> rescale (0.9, 1.0) -> centercrop(288) | 0.2829 | 0.8967 | 0.785 |
+| resnet34_081417 | 320 -> rescale (0.8889, 1.0) -> centercrop(288)  | 0.2705 | 0.8962 | 0.781 |
+
+- LocalCVとPublicLBが相関していないのは、テストデータには拡大したような画像が多いがバリデーションデータにはほとんど見られないためだと推測。
+
+### se_resnext50_32x4d
+- regression
+- SGD
+- epochs: 30
+- CosineAnnealingLR (1e-3, 1e-5)
+- rotate (-180, 180)
+- shear (-36, 36)
+- flip (0.5)
+- contrast (0.9, 1.1)
+
+| Model           | rescale    | val loss | val score | PublicLB |
+|:---------------:|:----------:|:--------:|:---------:|:--------:|
+| resnet34_080320 |            | **0.2639**   | **0.9062**    | 0.788    |
+| resnet34_080320 |(1.0, 1.125)| 0.2771   | 0.9016    | 0.789    |
+| se_resnext50_32x4d | 288 -> rescale (0.8889, 1.0) -> centercrop(256) | 0.2720 | 0.9031 | **0.793** |
+| resnet34_081200 | 324 -> rescale (0.9, 1.0) -> centercrop(256) | 0.2829 | 0.8967 | 0.785 |
+
+## Data Distillationにかかる時間を短縮する
+
+## Best models
+### resnet34_080806
+- regression
+- SGD
+- epochs: 30
+- CosineAnnealingLR (1e-3, 1e-5)
+- preprocess: scale_radius
+- rotate (-180, 180)
+- shear (-36, 36)
+- flip (0.5)
+- contrast (0.9, 1.1)
+- 288 -> rescale (0.8889, 1.0) -> centercrop(256)
+
+| Model           | val loss | val score | PublicLB  |
+|:---------------:|:--------:|:---------:|:---------:|
+| resnet34_080806 | 0.2720   | 0.9031    | **0.793** |
+
+## EfficientNetのパラメータ
+```python
+params_dict = {
+    # (width_coefficient, depth_coefficient, resolution, dropout_rate)
+    'efficientnet-b0': (1.0, 1.0, 224, 0.2),
+    'efficientnet-b1': (1.0, 1.1, 240, 0.2),
+    'efficientnet-b2': (1.1, 1.2, 260, 0.3),
+    'efficientnet-b3': (1.2, 1.4, 300, 0.3),
+    'efficientnet-b4': (1.4, 1.8, 380, 0.4),
+    'efficientnet-b5': (1.6, 2.2, 456, 0.4),
+    'efficientnet-b6': (1.8, 2.6, 528, 0.5),
+    'efficientnet-b7': (2.0, 3.1, 600, 0.5),
+}
 ```
-- epochs=30が最適
+
+## メモ
+- resnet系のfreeze_bnいらない説
+  - resnet34で試してみる

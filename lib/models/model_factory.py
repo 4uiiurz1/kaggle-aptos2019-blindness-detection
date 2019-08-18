@@ -4,6 +4,7 @@ from __future__ import print_function
 
 import torch.nn as nn
 import torch.nn.functional as F
+from torchvision import models
 import pretrainedmodels
 from efficientnet_pytorch import EfficientNet
 
@@ -13,6 +14,12 @@ def get_model(model_name='resnet18', num_outputs=None, pretrained=True,
 
     if 'efficientnet' in model_name:
         model = EfficientNet.from_pretrained(model_name, num_classes=num_outputs)
+
+    elif 'densenet' in model_name:
+        model = models.__dict__[model_name](num_classes=1000,
+                                            pretrained=pretrained)
+        in_features = model.classifier.in_features
+        model.classifier = nn.Linear(in_features, num_outputs)
 
     else:
         pretrained = 'imagenet' if pretrained else None
