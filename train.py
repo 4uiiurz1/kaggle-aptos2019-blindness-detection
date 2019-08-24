@@ -24,6 +24,7 @@ from torch.autograd import Variable
 import torch.optim as optim
 from torch.optim import lr_scheduler
 from torch.utils.data import DataLoader
+from torch.utils.data.sampler import WeightedRandomSampler
 import torch.backends.cudnn as cudnn
 import torchvision
 from torchvision import datasets, models, transforms
@@ -33,6 +34,7 @@ from lib.models.model_factory import get_model
 from lib.utils import *
 from lib.metrics import *
 from lib.losses import *
+from lib.optimizers import *
 from lib.preprocess import preprocess
 
 
@@ -48,6 +50,8 @@ def parse_args():
     parser.add_argument('--dropout_p', default=0, type=float)
     parser.add_argument('--loss', default='MSELoss',
                         choices=['CrossEntropyLoss', 'FocalLoss', 'MSELoss', 'multitask'])
+    parser.add_argument('--reg_coef', default=1.0, type=float)
+    parser.add_argument('--cls_coef', default=0.1, type=float)
     parser.add_argument('--epochs', default=30, type=int, metavar='N',
                         help='number of total epochs to run')
     parser.add_argument('-b', '--batch_size', default=32, type=int,
@@ -108,6 +112,8 @@ def parse_args():
                         default='diabetic_retinopathy + aptos2019')
     parser.add_argument('--cv', default=True, type=str2bool)
     parser.add_argument('--n_splits', default=5, type=int)
+    parser.add_argument('--remove_duplicate', default=False, type=str2bool)
+    parser.add_argument('--class_aware', default=False, type=str2bool)
 
     # pseudo label
     parser.add_argument('--pretrained_model')
@@ -134,8 +140,8 @@ def train(args, train_loader, model, criterion, optimizer, epoch):
         elif args.pred_type == 'regression':
             loss = criterion(output.view(-1), target.float())
         elif args.pred_type == 'multitask':
-            loss = criterion['regression'](output[:, 0], target.float()) + \
-                   criterion['classification'](output[:, 1:], target)
+            loss = args.reg_coef * criterion['regression'](output[:, 0], target.float()) + \
+                   args.cls_coef * criterion['classification'](output[:, 1:], target)
             output = output[:, 0].unsqueeze(1)
 
         # compute gradient and do optimizing step
@@ -183,8 +189,8 @@ def validate(args, val_loader, model, criterion):
             elif args.pred_type == 'regression':
                 loss = criterion(output.view(-1), target.float())
             elif args.pred_type == 'multitask':
-                loss = criterion['regression'](output[:, 0], target.float()) + \
-                       criterion['classification'](output[:, 1:], target)
+                loss = args.reg_coef * criterion['regression'](output[:, 0], target.float()) + \
+                       args.cls_coef * criterion['classification'](output[:, 1:], target)
                 output = output[:, 0].unsqueeze(1)
 
             if args.pred_type == 'regression' or args.pred_type == 'multitask':
@@ -353,16 +359,35 @@ def main():
             best_scores.append(best_score)
             continue
 
+        if args.remove_duplicate:
+            md5_df = pd.read_csv('inputs/strMd5.csv')
+            duplicate_img_paths = aptos2019_dir + '/' + md5_df[(md5_df.strMd5_count > 1) & (~md5_df.diagnosis.isnull())]['id_code'].values + '.png'
+            print(duplicate_img_paths)
+            for duplicate_img_path in duplicate_img_paths:
+                train_labels = train_labels[train_img_paths != duplicate_img_path]
+                train_img_paths = train_img_paths[train_img_paths != duplicate_img_path]
+                val_labels = val_labels[val_img_paths != duplicate_img_path]
+                val_img_paths = val_img_paths[val_img_paths != duplicate_img_path]
+
         # train
         train_set = Dataset(
             train_img_paths,
             train_labels,
             transform=train_transform)
+
+        _, class_sample_counts = np.unique(train_labels, return_counts=True)
+        weights = 1. / torch.tensor(class_sample_counts, dtype=torch.float)
+        samples_weights = weights[train_labels]
+        sampler = WeightedRandomSampler(
+            weights=samples_weights,
+            num_samples=len(samples_weights),
+            replacement=True)
         train_loader = torch.utils.data.DataLoader(
             train_set,
             batch_size=args.batch_size,
-            shuffle=True,
-            num_workers=4)
+            shuffle=False if args.class_aware else True,
+            num_workers=4,
+            sampler=sampler if args.class_aware else None)
 
         val_set = Dataset(
             val_img_paths,
@@ -390,6 +415,9 @@ def main():
                 filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr)
         elif args.optimizer == 'AdamW':
             optimizer = optim.AdamW(
+                filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr)
+        elif args.optimizer == 'RAdam':
+            optimizer = RAdam(
                 filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr)
         elif args.optimizer == 'SGD':
             optimizer = optim.SGD(filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr,
@@ -461,6 +489,8 @@ def main():
 
         print(results)
         results.to_csv('models/%s/results.csv' % args.name, index=False)
+
+        torch.cuda.empty_cache()
 
         if not args.cv:
             break

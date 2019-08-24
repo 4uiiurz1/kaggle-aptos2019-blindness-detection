@@ -146,10 +146,12 @@
 | resnet34_080806 | 288 -> rescale (0.8889, 1.0) -> centercrop(256) | 0.2720 | 0.9031 | **0.793** |
 | resnet34_081200 | 320 -> rescale (0.9, 1.0) -> centercrop(288) | 0.2829 | 0.8967 | 0.785 |
 | resnet34_081417 | 320 -> rescale (0.8889, 1.0) -> centercrop(288)  | 0.2705 | 0.8962 | 0.781 |
+| resnet34_081602 | 252 -> rescale (0.8889, 1.0) -> centercrop(224)  | 0.2810 | 0.8953 | 0.784 |
 
 - LocalCVとPublicLBが相関していないのは、テストデータには拡大したような画像が多いがバリデーションデータにはほとんど見られないためだと推測。
 
-### se_resnext50_32x4d
+## Freeze Batch Normalization
+- resnet34
 - regression
 - SGD
 - epochs: 30
@@ -158,13 +160,31 @@
 - shear (-36, 36)
 - flip (0.5)
 - contrast (0.9, 1.1)
+- 288 -> rescale (0.8889, 1.0) -> centercrop(256)
 
-| Model           | rescale    | val loss | val score | PublicLB |
-|:---------------:|:----------:|:--------:|:---------:|:--------:|
-| resnet34_080320 |            | **0.2639**   | **0.9062**    | 0.788    |
-| resnet34_080320 |(1.0, 1.125)| 0.2771   | 0.9016    | 0.789    |
-| se_resnext50_32x4d | 288 -> rescale (0.8889, 1.0) -> centercrop(256) | 0.2720 | 0.9031 | **0.793** |
-| resnet34_081200 | 324 -> rescale (0.9, 1.0) -> centercrop(256) | 0.2829 | 0.8967 | 0.785 |
+| Model           | freeze   | val loss | val score | PublicLB |
+|:---------------:|:--------:|:--------:|:---------:|:--------:|
+| resnet34_080806 | o        | 0.2720 | 0.9031 | **0.793** |
+| resnet34_081711 | x        | 0.2652 | 0.9025 | 0.791 |
+
+- 誤差程度。
+
+## Multitask learning
+- resnet34
+- regression
+- SGD
+- epochs: 30
+- CosineAnnealingLR (1e-3, 1e-5)
+- rotate (-180, 180)
+- shear (-36, 36)
+- flip (0.5)
+- contrast (0.9, 1.1)
+- 288 -> rescale (0.8889, 1.0) -> centercrop(256)
+
+| Model           | multitask   | val loss | val score | PublicLB |
+|:---------------:|:-----------:|:--------:|:---------:|:--------:|
+| resnet34_080806 | x           | 0.2720 | 0.9031 | **0.793** |
+| resnet34_081820 | o           | 0.7281 | 0.9067 | 0.791 |
 
 ## Data Distillationにかかる時間を短縮する
 
@@ -184,6 +204,57 @@
 | Model           | val loss | val score | PublicLB  |
 |:---------------:|:--------:|:---------:|:---------:|
 | resnet34_080806 | 0.2720   | 0.9031    | **0.793** |
+
+### se_resnext50_32x4d_080922
+- regression
+- SGD
+- epochs: 30
+- CosineAnnealingLR (1e-3, 1e-5)
+- preprocess: scale_radius
+- rotate (-180, 180)
+- shear (-36, 36)
+- flip (0.5)
+- contrast (0.9, 1.1)
+- 288 -> rescale (0.8889, 1.0) -> centercrop(256)
+
+| Model           | val loss | val score | PublicLB  |
+|:---------------:|:--------:|:---------:|:---------:|
+| se_resnext50_32x4d_080922 | 0.2273   | 0.9159    | **0.811** |
+
+### se_resnext101_32x4d_080922
+- regression
+- SGD
+- epochs: 30
+- CosineAnnealingLR (1e-3, 1e-5)
+- preprocess: scale_radius
+- rotate (-180, 180)
+- shear (-36, 36)
+- flip (0.5)
+- contrast (0.9, 1.1)
+- 288 -> rescale (0.8889, 1.0) -> centercrop(256)
+
+| Model           | val loss | val score | PublicLB  |
+|:---------------:|:--------:|:---------:|:---------:|
+| se_resnext101_32x4d_081208 | 0.2157   | 0.9186    | **0.807** |
+
+### se_resnext50_32x4d_082413
+- regression
+- RAdam
+- epochs: 10
+- CosineAnnealingLR (1e-3, 1e-5)
+- preprocess: scale_radius
+- rotate (-180, 180)
+- shear (-36, 36)
+- flip (0.5)
+- contrast (0.9, 1.1)
+- 288 -> rescale (0.8889, 1.0) -> centercrop(256)
+- pretrained_model: se_resnext50_32x4d_080922
+- pseudo_labels: se_resnext50_32x4d_080922
+- train_dataset: aptos2019
+
+| Model           | val loss | val score | PublicLB  |
+|:---------------:|:--------:|:---------:|:---------:|
+| se_resnext50_32x4d_082413 | 0.1934   | 0.9254    | **0.817** |
 
 ## EfficientNetのパラメータ
 ```python

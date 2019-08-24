@@ -75,6 +75,8 @@ def main():
         num_outputs = 5
     elif args.pred_type == 'regression':
         num_outputs = 1
+    elif args.pred_type == 'multitask':
+        num_outputs = 6
     else:
         raise NotImplementedError
 
