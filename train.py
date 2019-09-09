@@ -253,6 +253,11 @@ def main():
 
     cudnn.benchmark = True
 
+    model = get_model(model_name=args.arch,
+                      num_outputs=num_outputs,
+                      freeze_bn=args.freeze_bn,
+                      dropout_p=args.dropout_p)
+
     train_transform = []
     train_transform = transforms.Compose([
         transforms.Resize((args.img_size, args.img_size)),
@@ -286,28 +291,30 @@ def main():
     ])
 
     # data loading code
-    diabetic_retinopathy_dir = preprocess(
-        'diabetic_retinopathy',
-        args.img_size,
-        scale=args.scale_radius,
-        norm=args.normalize,
-        pad=args.padding,
-        remove=args.remove)
-    diabetic_retinopathy_df = pd.read_csv('inputs/diabetic-retinopathy-resized/trainLabels.csv')
-    diabetic_retinopathy_img_paths = \
-        diabetic_retinopathy_dir + '/' + diabetic_retinopathy_df['image'].values + '.jpeg'
-    diabetic_retinopathy_labels = diabetic_retinopathy_df['level'].values
+    if 'diabetic_retinopathy' in args.train_dataset:
+        diabetic_retinopathy_dir = preprocess(
+            'diabetic_retinopathy',
+            args.img_size,
+            scale=args.scale_radius,
+            norm=args.normalize,
+            pad=args.padding,
+            remove=args.remove)
+        diabetic_retinopathy_df = pd.read_csv('inputs/diabetic-retinopathy-resized/trainLabels.csv')
+        diabetic_retinopathy_img_paths = \
+            diabetic_retinopathy_dir + '/' + diabetic_retinopathy_df['image'].values + '.jpeg'
+        diabetic_retinopathy_labels = diabetic_retinopathy_df['level'].values
 
-    aptos2019_dir = preprocess(
-        'aptos2019',
-        args.img_size,
-        scale=args.scale_radius,
-        norm=args.normalize,
-        pad=args.padding,
-        remove=args.remove)
-    aptos2019_df = pd.read_csv('inputs/train.csv')
-    aptos2019_img_paths = aptos2019_dir + '/' + aptos2019_df['id_code'].values + '.png'
-    aptos2019_labels = aptos2019_df['diagnosis'].values
+    if 'aptos2019' in args.train_dataset:
+        aptos2019_dir = preprocess(
+            'aptos2019',
+            args.img_size,
+            scale=args.scale_radius,
+            norm=args.normalize,
+            pad=args.padding,
+            remove=args.remove)
+        aptos2019_df = pd.read_csv('inputs/train.csv')
+        aptos2019_img_paths = aptos2019_dir + '/' + aptos2019_df['id_code'].values + '.png'
+        aptos2019_labels = aptos2019_df['diagnosis'].values
 
     if args.train_dataset == 'aptos2019':
         skf = StratifiedKFold(n_splits=args.n_splits, shuffle=True, random_state=41)
@@ -326,8 +333,8 @@ def main():
         for fold, (train_idx, val_idx) in enumerate(skf.split(aptos2019_img_paths, aptos2019_labels)):
             img_paths.append((np.hstack((aptos2019_img_paths[train_idx], diabetic_retinopathy_img_paths)), aptos2019_img_paths[val_idx]))
             labels.append((np.hstack((aptos2019_labels[train_idx], diabetic_retinopathy_labels)), aptos2019_labels[val_idx]))
-    else:
-        raise NotImplementedError
+    # else:
+    #     raise NotImplementedError
 
     if args.pseudo_labels:
         test_df = pd.read_csv('probs/%s.csv' % args.pseudo_labels)
@@ -343,6 +350,15 @@ def main():
         for fold in range(len(img_paths)):
             img_paths[fold] = (np.hstack((img_paths[fold][0], test_img_paths)), img_paths[fold][1])
             labels[fold] = (np.hstack((labels[fold][0], test_labels)), labels[fold][1])
+
+    if 'messidor' in args.train_dataset:
+        test_dir = preprocess(
+            'messidor',
+            args.img_size,
+            scale=args.scale_radius,
+            norm=args.normalize,
+            pad=args.padding,
+            remove=args.remove)
 
     folds = []
     best_losses = []
@@ -376,12 +392,14 @@ def main():
             transform=train_transform)
 
         _, class_sample_counts = np.unique(train_labels, return_counts=True)
-        weights = 1. / torch.tensor(class_sample_counts, dtype=torch.float)
-        samples_weights = weights[train_labels]
-        sampler = WeightedRandomSampler(
-            weights=samples_weights,
-            num_samples=len(samples_weights),
-            replacement=True)
+        # print(class_sample_counts)
+        # weights = 1. / torch.tensor(class_sample_counts, dtype=torch.float)
+        # weights = np.array([0.2, 0.1, 0.6, 0.1, 0.1])
+        # samples_weights = weights[train_labels]
+        # sampler = WeightedRandomSampler(
+        #     weights=samples_weights,
+        #     num_samples=11000,
+        #     replacement=False)
         train_loader = torch.utils.data.DataLoader(
             train_set,
             batch_size=args.batch_size,

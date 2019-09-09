@@ -186,8 +186,6 @@
 | resnet34_080806 | x           | 0.2720 | 0.9031 | **0.793** |
 | resnet34_081820 | o           | 0.7281 | 0.9067 | 0.791 |
 
-## Data Distillationにかかる時間を短縮する
-
 ## Best models
 ### resnet34_080806
 - regression
@@ -221,7 +219,7 @@
 |:---------------:|:--------:|:---------:|:---------:|
 | se_resnext50_32x4d_080922 | 0.2273   | 0.9159    | **0.811** |
 
-### se_resnext101_32x4d_080922
+### se_resnext101_32x4d_081208
 - regression
 - SGD
 - epochs: 30
@@ -270,7 +268,3 @@ params_dict = {
     'efficientnet-b7': (2.0, 3.1, 600, 0.5),
 }
 ```
-
-## メモ
-- resnet系のfreeze_bnいらない説
-  - resnet34で試してみる

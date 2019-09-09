@@ -54,6 +54,8 @@ def preprocess(dataset, img_size, scale=False, norm=False, pad=False, remove=Fal
     elif dataset == 'test':
         df = pd.read_csv('inputs/test.csv')
         img_paths = 'inputs/test_images/' + df['id_code'].values + '.png'
+    elif dataset == 'messidor':
+        img_paths = glob('inputs/messidor/*/*.tif')
     else:
         NotImplementedError
 
