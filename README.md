@@ -1,9 +1,9 @@
 # kaggle-aptos2019-blindness-detection
-**14th** place solution for APTOS 2019 Blindness Detection on Kaggle (https://www.kaggle.com/c/aptos2019-blindness-detection).
+**11th** place solution for APTOS 2019 Blindness Detection on Kaggle (https://www.kaggle.com/c/aptos2019-blindness-detection).
 
 ## Solution
 ### Preprocessing
-I used only Ben's crop.
+I used only Ben's crop (scale radius).
 
 ### Augmentation
 Output image size is 256x256.
@@ -27,7 +27,7 @@ train_transform = transforms.Compose([
 - Models: SE-ResNeXt50\_32x4d, SE-ResNeXt101\_32x4d, SENet154
 - Loss: MSE
 - Optimizer: SGD (momentum=0.9)
-- LR scheduler: CosineAnnealingLR (lr=1e-3 -&gt; 1e-5)
+- LR scheduler: CosineAnnealingLR (lr=1e-3 -> 1e-5)
 - 30 epochs
 - Dataset: 2019 train dataset (5-folds cv) + 2015 dataset (like https://www.kaggle.com/c/aptos2019-blindness-detection/discussion/97860#581042)
 
@@ -35,7 +35,7 @@ train_transform = transforms.Compose([
 - Models: SE-ResNeXt50\_32x4d, SE-ResNeXt101\_32x4d (1st-level models' weights)
 - Loss: MSE
 - Optimizer: RAdam
-- LR scheduler: CosineAnnealingLR (lr=1e-3 -&gt; 1e-5)
+- LR scheduler: CosineAnnealingLR (lr=1e-3 -> 1e-5)
 - 10 epochs
 - Dataset: 2019 train dataset (5-folds cv) + 2019 test dataset (**public + private**,  divided into 5 and used different data each fold. )
 - Pseudo labels: weighted average of 1st-level models

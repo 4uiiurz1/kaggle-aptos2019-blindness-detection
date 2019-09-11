@@ -254,7 +254,7 @@
 |:---------------:|:--------:|:---------:|:---------:|
 | se_resnext50_32x4d_082413 | 0.1934   | 0.9254    | **0.817** |
 
-## EfficientNetのパラメータ
+## EfficientNet
 ```python
 params_dict = {
     # (width_coefficient, depth_coefficient, resolution, dropout_rate)
